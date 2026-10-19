@@ -53,10 +53,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kifpool.app.WalletViewModel
+import com.kifpool.app.security.PinPolicy
 import com.kifpool.app.ui.components.AmountDialog
 import com.kifpool.app.ui.components.ConfirmDialog
 import com.kifpool.app.ui.components.SectionTitle
 import com.kifpool.app.util.BackupJson
+import com.kifpool.app.util.Biometrics
 import com.kifpool.app.util.Csv
 import com.kifpool.app.util.Fmt
 import kotlinx.coroutines.Dispatchers
@@ -77,15 +79,7 @@ fun SettingsScreen(
     val biometricEnabled by vm.biometricEnabled.collectAsState()
     val securityQuestion by vm.securityQuestion.collectAsState()
 
-    val canBiometric = remember {
-        try {
-            BiometricManager.from(context)
-                .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) ==
-                BiometricManager.BIOMETRIC_SUCCESS
-        } catch (e: Exception) {
-            false
-        }
-    }
+    val canBiometric = remember { Biometrics.canUseBiometric(context) }
 
     var editBudget by remember { mutableStateOf(false) }
     var editGoal by remember { mutableStateOf(false) }
@@ -149,38 +143,16 @@ fun SettingsScreen(
         )
 
         SectionTitle("امنیت")
-        Surface(
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
-            ) {
-                Icon(
-                    Icons.Rounded.Lock,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("قفل برنامه", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        if (lockEnabled) "ورود با PIN و اثر انگشت فعال است"
-                        else "ورود سریع بدون رمز",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = lockEnabled,
-                    onCheckedChange = { enabled ->
-                        if (enabled) showPinDialog = true else confirmRemoveLock = true
-                    }
-                )
+        SwitchRow(
+            icon = Icons.Rounded.Lock,
+            title = "قفل برنامه",
+            subtitle = if (lockEnabled) "ورود با PIN و اثر انگشت فعال است"
+            else "ورود سریع بدون رمز",
+            checked = lockEnabled,
+            onCheckedChange = { enabled ->
+                if (enabled) showPinDialog = true else confirmRemoveLock = true
             }
-        }
+        )
         if (lockEnabled) {
             Spacer(Modifier.height(10.dp))
             SettingRow(
@@ -199,67 +171,25 @@ fun SettingsScreen(
                 onClick = { showPinDialog = true }
             )
             Spacer(Modifier.height(10.dp))
-            Surface(
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.Fingerprint,
-                        contentDescription = null,
-                        tint = if (canBiometric) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("ورود با اثر انگشت", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            if (canBiometric) "باز کردن سریع قفل با حسگر اثر انگشت"
-                            else "حسگر اثر انگشت روی این گوشی در دسترس نیست",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = biometricEnabled && canBiometric,
-                        enabled = canBiometric,
-                        onCheckedChange = { vm.setBiometricEnabled(it) }
-                    )
-                }
-            }
+            SwitchRow(
+                icon = Icons.Rounded.Fingerprint,
+                title = "ورود با اثر انگشت",
+                subtitle = if (canBiometric) "باز کردن سریع قفل با حسگر اثر انگشت"
+                else "حسگر اثر انگشت روی این گوشی در دسترس نیست",
+                checked = biometricEnabled && canBiometric,
+                enabled = canBiometric,
+                onCheckedChange = { vm.setBiometricEnabled(it) }
+            )
         }
 
         SectionTitle("ظاهر")
-        Surface(
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
-            ) {
-                Icon(
-                    Icons.Rounded.WbSunny,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("حالت شب", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "تم تیره مدرن برای چشم‌های راحت‌تر",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(checked = dark, onCheckedChange = { vm.setDarkMode(it) })
-            }
-        }
+        SwitchRow(
+            icon = Icons.Rounded.WbSunny,
+            title = "حالت شب",
+            subtitle = "تم تیره مدرن برای چشم‌های راحت‌تر",
+            checked = dark,
+            onCheckedChange = { vm.setDarkMode(it) }
+        )
 
         SectionTitle("داده‌ها")
         SettingRow(
@@ -334,7 +264,7 @@ fun SettingsScreen(
                 Text("کیف پول من", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "نسخه ۱٫۶٫۰ — دفتر حساب، بودجهٔ دسته‌بندی و سوال امنیتی",
+                    "نسخه ۱٫۶٫۱ — سخت‌سازی امنیتی، ضد حملهٔ جست‌وجوی فراگیر و تست‌های واحد",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -431,7 +361,8 @@ private fun PinSetupDialog(
     var pin2 by remember { mutableStateOf("") }
     var question by remember { mutableStateOf("") }
     var answer by remember { mutableStateOf("") }
-    val valid = pin.length in 4..6 && pin == pin2 && pin.all { it in '0'..'9' }
+    // قواعد PIN از PinPolicy (تک مرجع) — با تکرار قبلی در LockScreen یکسان است
+    val valid = PinPolicy.isValid(pin) && pin == pin2
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -501,6 +432,48 @@ private fun PinSetupDialog(
             TextButton(onClick = onDismiss) { Text("انصراف") }
         }
     )
+}
+
+@Composable
+private fun SwitchRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (enabled) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = checked,
+                enabled = enabled,
+                onCheckedChange = onCheckedChange
+            )
+        }
+    }
 }
 
 @Composable

@@ -13,6 +13,9 @@ import com.kifpool.app.data.DebtType
 import com.kifpool.app.data.ReminderEntity
 import com.kifpool.app.data.TransactionEntity
 import com.kifpool.app.logic.Jalali
+import com.kifpool.app.security.Pbkdf2Hasher
+import com.kifpool.app.security.SecurityManager
+import com.kifpool.app.security.SharedPreferencesStore
 import com.kifpool.app.util.BackupJson
 import com.kifpool.app.util.Presets
 import com.kifpool.app.util.SampleData
@@ -27,7 +30,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.security.MessageDigest
 import java.time.LocalDate
 
 class WalletViewModel(app: Application) : AndroidViewModel(app) {
@@ -136,63 +138,54 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
 
     // ---- lock (قفل PIN + اثر انگشت) -------------------------------------------
-    private val _lockEnabled = MutableStateFlow(prefs.getBoolean(KEY_LOCK, false))
+    // همهٔ منطق اعتبارنامه‌ها به security/SecurityManager منتقل شد (امنیت + DRY):
+    // PBKDF2 با salt، مقایسهٔ زمان‌ثابت، مهاجرت شفاف هش‌های قدیمی
+    private val security = SecurityManager(
+        SharedPreferencesStore(prefs),
+        Pbkdf2Hasher
+    )
+
+    private val _lockEnabled = MutableStateFlow(security.lockEnabled)
     val lockEnabled: StateFlow<Boolean> = _lockEnabled.asStateFlow()
 
-    private val _biometricEnabled = MutableStateFlow(prefs.getBoolean(KEY_BIO, false))
+    private val _biometricEnabled = MutableStateFlow(security.biometricEnabled)
     val biometricEnabled: StateFlow<Boolean> = _biometricEnabled.asStateFlow()
 
     fun setPin(pin: String) {
-        prefs.edit().putString(KEY_PIN, sha256(pin)).apply()
-        _lockEnabled.value = true
-        prefs.edit().putBoolean(KEY_LOCK, true).apply()
+        security.setPin(pin)
+        _lockEnabled.value = security.lockEnabled
     }
 
-    fun checkPin(pin: String): Boolean =
-        prefs.getString(KEY_PIN, null) == sha256(pin)
+    fun checkPin(pin: String): Boolean = security.checkPin(pin)
 
     fun removeLock() {
+        // فقط کلیدهای امنیتی پاک می‌شوند؛ تنظیمات دیگر (تم/بودجه/هدف) سالم می‌مانند
+        security.disable()
         _lockEnabled.value = false
         _biometricEnabled.value = false
-        prefs.edit().clear()
-            .putBoolean(KEY_DARK, _darkMode.value)
-            .putLong(KEY_BUDGET, _monthlyBudget.value)
-            .putLong(KEY_WEEKLY, _weeklyGoal.value)
-            .apply()
     }
 
     fun setBiometricEnabled(v: Boolean) {
+        security.biometricEnabled = v
         _biometricEnabled.value = v
-        prefs.edit().putBoolean(KEY_BIO, v).apply()
     }
 
     // ---- سوال امنیتی (بازیابی PIN — نسخهٔ ۱٫۶) ---------------------------------
-    private val _securityQuestion = MutableStateFlow(prefs.getString(KEY_SEC_Q, "") ?: "")
+    private val _securityQuestion = MutableStateFlow(security.securityQuestion)
     val securityQuestion: StateFlow<String> = _securityQuestion.asStateFlow()
 
     fun setSecurityQuestion(question: String, answer: String) {
-        val q = question.trim()
-        val a = answer.trim()
-        if (q.isEmpty() || a.isEmpty()) return
-        prefs.edit().putString(KEY_SEC_Q, q).putString(KEY_SEC_A, sha256(a)).apply()
-        _securityQuestion.value = q
+        if (security.setSecurityQuestion(question, answer)) {
+            _securityQuestion.value = security.securityQuestion
+        }
     }
 
-    fun checkSecurityAnswer(answer: String): Boolean {
-        val stored = prefs.getString(KEY_SEC_A, null) ?: return false
-        return stored == sha256(answer.trim())
-    }
+    fun checkSecurityAnswer(answer: String): Boolean =
+        security.checkSecurityAnswer(answer)
 
     /** برداشتن قفل پس از پاسخ درست سوال امنیتی — کاربر باید رمز جدید بگذارد. */
     fun recoverLock() {
         removeLock()
-    }
-
-    private fun sha256(text: String): String = try {
-        val digest = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
-        digest.joinToString("") { "%02x".format(it) }
-    } catch (e: Exception) {
-        text
     }
 
     // ---- JSON backup (پشتیبان‌گیری) ---------------------------------------------
@@ -349,10 +342,6 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         private const val KEY_DARK = "dark_mode"
         private const val KEY_BUDGET = "monthly_budget"
         private const val KEY_WEEKLY = "weekly_goal"
-        private const val KEY_LOCK = "lock_enabled"
-        private const val KEY_PIN = "lock_pin_hash"
-        private const val KEY_BIO = "biometric_enabled"
-        private const val KEY_SEC_Q = "security_question"
-        private const val KEY_SEC_A = "security_answer_hash"
+        // کلیدهای امنیتی (PIN/سوال/اثر انگشت) به security/SecurityManager منتقل شدند
     }
 }

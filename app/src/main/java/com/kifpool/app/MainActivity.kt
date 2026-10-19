@@ -36,6 +36,12 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // حریم خصوصی مالی: جلوگیری از اسکرین‌شات و نمایش محتوا در thumbnails حافظهٔ اخیر
+        window.setFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SECURE,
+            android.view.WindowManager.LayoutParams.FLAG_SECURE
+        )
+
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
 

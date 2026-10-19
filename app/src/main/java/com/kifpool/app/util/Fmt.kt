@@ -17,23 +17,23 @@ object Fmt {
     fun fa(n: Int): String = fa(n.toString())
     fun fa(n: Long): String = fa(n.toString())
 
-    /** Groups digits by 3 with the Persian thousands separator. */
-    private fun group(s: String): String {
+    /** Groups digits by 3 with the given separator. */
+    private fun group(s: String, sep: Char): String {
         val sb = StringBuilder()
         val len = s.length
         for (i in s.indices) {
             sb.append(s[i])
             val rem = len - i - 1
-            if (rem > 0 && rem % 3 == 0) sb.append('٬')
+            if (rem > 0 && rem % 3 == 0) sb.append(sep)
         }
         return sb.toString()
     }
 
     /** 1250000 -> ۱٬۲۵۰٬۰۰۰ */
-    fun money(n: Long): String = fa(group(n.toString()))
+    fun money(n: Long): String = fa(group(n.toString(), '٬'))
 
-    /** For CSV files: 1250000 -> 1,250,000 */
-    fun moneyLatin(n: Long): String = group(n.toString())
+    /** For CSV files: 1250000 -> 1,250,000 (ASCII comma — Excel-friendly) */
+    fun moneyLatin(n: Long): String = group(n.toString(), ',')
 
     fun percent(f: Float): String = fa("${(f * 100).roundToInt()}٪")
 
@@ -53,7 +53,7 @@ object Fmt {
         val d = digitsOnly(raw).trimStart('0')
         if (d.isEmpty()) return ""
         val capped = if (d.length > 15) d.substring(0, 15) else d
-        return fa(group(capped))
+        return fa(group(capped, '٬'))
     }
 
     fun parseAmount(display: String): Long = digitsOnly(display).toLongOrNull() ?: 0L

@@ -13,8 +13,8 @@ android {
         applicationId = "com.kifpool.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.6.0"
+        versionCode = 6
+        versionName = "1.6.1"
     }
 
     signingConfigs {
@@ -62,6 +62,12 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests.all {
+            it.useJUnit()
+        }
+    }
 }
 
 dependencies {
@@ -91,4 +97,9 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // ---- تست‌های واحد (JVM) ----
+    testImplementation("junit:junit:4.13.2")
+    // org.json واقعی برای تست‌های JVM (android.jar در تست، فقط stub است)
+    testImplementation("org.json:json:20240303")
 }

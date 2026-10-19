@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,14 +46,21 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.withResumed
 import com.kifpool.app.WalletViewModel
+import com.kifpool.app.security.AttemptThrottle
+import com.kifpool.app.security.PinPolicy
+import com.kifpool.app.util.Biometrics
+import com.kifpool.app.util.Fmt
 import kotlinx.coroutines.delay
 
 /**
  * قفل برنامه: صفحه‌کلید PIN + ورود با اثر انگشت.
  *
+ * امنیت (نسخهٔ ۱٫۶٫۱):
+ *  - ضد حملهٔ Brute Force: پس از ۳ تلاش ناموفق، قفل نمایی (۳۰ث تا ۱۰دقیقه)
+ *    با [AttemptThrottle] — همان منطق برای جواب سوال امنیتی هم اعمال می‌شود.
+ *
  * رفع کرش ۱٫۵٫۱: نمایش BiometricPrompt فقط وقتی اکتیویتی در حالت RESUMED است
- * (withResumed) و کل فراخوانی داخل try/catch است تا هر مشکلی
- * به‌جای بستن برنامه، به صفحه‌کلید PIN برگردد.
+ * (withResumed) و کل فراخوانی داخل try/catch است.
  */
 @Composable
 fun LockScreen(
@@ -67,27 +75,37 @@ fun LockScreen(
     var error by remember { mutableStateOf(false) }
     var bioTried by remember { mutableStateOf(false) }
 
+    // ضد Brute Force — ساعت تیک می‌خورد تا شمارندهٔ زمان قفل به‌روز بماند
+    val throttle = remember { AttemptThrottle() }
+    var nowTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowTick = System.currentTimeMillis()
+            delay(500)
+        }
+    }
+
     // فراموشی رمز (نسخهٔ ۱٫۶)
     val securityQuestion by vm.securityQuestion.collectAsState()
     var showForgot by remember { mutableStateOf(false) }
     var forgotAnswer by remember { mutableStateOf("") }
     var forgotError by remember { mutableStateOf(false) }
+    val forgotThrottle = remember { AttemptThrottle() }
 
-    val canBiometric = remember {
-        try {
-            BiometricManager.from(context)
-                .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) ==
-                BiometricManager.BIOMETRIC_SUCCESS
-        } catch (e: Exception) {
-            false
-        }
-    }
+    val canBiometric = remember { Biometrics.canUseBiometric(context) }
+
+    // ثانیه‌های باقی‌ماندهٔ قفل؛ nowTick صریح پاس می‌شود تا خواندن state در
+    // کامپوزیشن انجام شود و UI هر ۵۰۰ میلی‌ثانیه به‌روز شود
+    fun lockSecondsLeft(now: Long): Int = ((throttle.remainingLockMillis() + 999) / 1000).toInt()
 
     fun submit() {
-        if (pin.length < 4) return
+        if (pin.length < PinPolicy.MIN_LENGTH) return
+        if (!throttle.canAttempt()) return // در حالت قفل، تلاش ممنوع
         if (vm.checkPin(pin)) {
+            throttle.registerSuccess()
             onUnlock()
         } else {
+            throttle.registerFailure()
             error = true
         }
     }
@@ -233,7 +251,7 @@ fun LockScreen(
                             else -> {
                                 KeyPadButton(
                                     label = key,
-                                    enabled = pin.length < 6,
+                                    enabled = pin.length < 6 && throttle.canAttempt(),
                                     onClick = {
                                         pin += key
                                         if (pin.length == 6) submit()
@@ -246,10 +264,16 @@ fun LockScreen(
             }
 
             Spacer(Modifier.height(14.dp))
+            val locked = !throttle.canAttempt()
             Text(
-                if (pin.length == 6) "بررسی..." else "PIN بین ۴ تا ۶ رقم است",
+                when {
+                    locked -> "تلاش‌های زیاد ناموفق — ${Fmt.fa(lockSecondsLeft(nowTick))} ثانیه دیگر دوباره"
+                    pin.length == 6 -> "بررسی..."
+                    else -> "PIN بین ۴ تا ۶ رقم است"
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (locked) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             // بازیابی با سوال امنیتی (نسخهٔ ۱٫۶)
@@ -259,8 +283,8 @@ fun LockScreen(
                 }
             }
 
-            // دکمه تأیید برای PINهای ۴ یا ۵ رقمی
-            if (pin.length in 4..5) {
+            // دکمه تأیید برای PINهای ۴ یا ۵ رقمی (وقتی قفل تلاش فعال نیست)
+            if (pin.length in PinPolicy.MIN_LENGTH..5 && throttle.canAttempt()) {
                 Spacer(Modifier.height(8.dp))
                 Surface(
                     shape = RoundedCornerShape(14.dp),
@@ -310,7 +334,8 @@ fun LockScreen(
                     if (forgotError) {
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "پاسخ درست نیست؛ دوباره تلاش کن",
+                            if (forgotThrottle.canAttempt()) "پاسخ درست نیست؛ دوباره تلاش کن"
+                            else "تلاش‌های زیاد — چند لحظه صبر کن و دوباره امتحان کن",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -325,13 +350,15 @@ fun LockScreen(
             },
             confirmButton = {
                 TextButton(
-                    enabled = forgotAnswer.isNotBlank(),
+                    enabled = forgotAnswer.isNotBlank() && forgotThrottle.canAttempt(),
                     onClick = {
                         if (vm.checkSecurityAnswer(forgotAnswer)) {
+                            forgotThrottle.registerSuccess()
                             vm.recoverLock()
                             showForgot = false
                             onUnlock()
                         } else {
+                            forgotThrottle.registerFailure()
                             forgotError = true
                         }
                     }

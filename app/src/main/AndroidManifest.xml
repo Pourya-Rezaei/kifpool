@@ -9,12 +9,14 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.KifPool">
+        <!-- allowBackup=false: دادهٔ مالی و هش PIN نباید در بکاپ ابری/adb بیفتد؛
+             کاربر پشتیبان رسمی خودش را با «پشتیبان‌گیری JSON» می‌گیرد -->
 
         <!-- singleTask: کلیک روی اعلان اکتیویتی را دوباره نمی‌سازد (رفع کرش) -->
         <activity

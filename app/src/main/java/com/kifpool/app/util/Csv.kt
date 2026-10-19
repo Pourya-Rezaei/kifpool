@@ -1,9 +1,6 @@
 package com.kifpool.app.util
 
 import android.content.Context
-import android.content.Intent
-import android.widget.Toast
-import androidx.core.content.FileProvider
 import com.kifpool.app.data.CategoryEntity
 import com.kifpool.app.data.TransactionEntity
 import com.kifpool.app.data.TxType
@@ -12,9 +9,17 @@ import java.io.File
 import java.time.LocalDate
 import java.util.Locale
 
+/**
+ * ساخت خروجی CSV سازگار با Excel.
+ *
+ * امنیت:
+ *  - همهٔ فیلدها همیشه داخل " " قرار می‌گیرند (قبل از این فقط توضیحات
+ *    escape می‌شد و دسته‌ای با نام حاوی ویرگول، فایل را خراب می‌کرد).
+ *  - محافظت CSV Formula Injection: فیلدهایی که با = + - @ TAB یا CR شروع
+ *    شوند در Excel به‌عنوان فرمول اجرا می‌شوند؛ با پیشوند ' خنثی می‌شوند.
+ */
 object Csv {
 
-    /** Builds a comma-separated CSV (Excel-friendly, Persian headers). */
     fun build(txs: List<TransactionEntity>, cats: List<CategoryEntity>): String {
         val nameById = cats.associateBy { it.id }
         val sb = StringBuilder()
@@ -27,47 +32,35 @@ object Csv {
             val row = listOf(
                 type,
                 Fmt.moneyLatin(tx.amount),
-                cat?.name ?: "-",
+                cat?.name ?: "بدون دسته",
                 dateStr,
-                escape(tx.note)
+                tx.note
             )
-            sb.append(row.joinToString(",")).append('\n')
+            sb.append(row.joinToString(",") { encodeField(it) }).append('\n')
         }
         return sb.toString()
     }
 
-    private fun escape(s: String): String =
-        if (s.contains(',') || s.contains('"') || s.contains('\n')) {
-            "\"" + s.replace("\"", "\"\"") + "\""
-        } else s
+    /**
+     * کدگذاری امن یک فیلد CSV: همیشه درون نقل‌قول + جاگذاری " دوتایی
+     * + خنثی‌سازی فرمول‌های اکسل (= + - @ Tab CR).
+     */
+    fun encodeField(raw: String): String {
+        val safe = if (raw.isNotEmpty() && raw[0] in "=+-@\t\r") "'$raw" else raw
+        return "\"" + safe.replace("\"", "\"\"") + "\""
+    }
 
-    /** Writes the CSV (UTF-8 with BOM so Excel shows Persian correctly). */
+    /** نوشتن CSV با BOM تا Excel فارسی را درست نشان دهد. */
     fun write(context: Context, content: String): File {
-        val dir = context.getExternalFilesDir("exports") ?: context.filesDir
-        val j = Jalali.toJalali(LocalDate.now())
-        val file = File(dir, "kifpool_" + j.year + "_" + j.month + ".csv")
-        file.writeText("\uFEFF" + content, Charsets.UTF_8)
-        return file
+        val name = FileExport.exportFileName(prefix = "kifpool", ext = "csv")
+        return FileExport.writeToExports(context, name, "\uFEFF" + content)
     }
 
-    /** Opens the Android share sheet for the CSV file. */
-    fun share(context: Context, file: File) {
-        val uri = FileProvider.getUriForFile(
-            context, context.packageName + ".fileprovider", file
-        )
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/csv"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "خروجی تراکنش‌های کیف پول من")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        val chooser = Intent.createChooser(intent, "ارسال فایل CSV").apply {
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        try {
-            context.startActivity(chooser)
-        } catch (e: Exception) {
-            Toast.makeText(context, "فایل ذخیره شد: " + file.absolutePath, Toast.LENGTH_LONG).show()
-        }
-    }
+    /** باز کردن صفحهٔ اشتراک برای فایل CSV. */
+    fun share(context: Context, file: File) = FileExport.share(
+        context, file,
+        mime = "text/csv",
+        subject = "خروجی تراکنش‌های کیف پول من",
+        chooserTitle = "ارسال فایل CSV"
+    )
 }
