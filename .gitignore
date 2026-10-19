@@ -1,0 +1,36 @@
+# ---------- Gradle ----------
+.gradle/
+build/
+/build
+
+# ---------- Android Studio / IntelliJ ----------
+.idea/
+*.iml
+*.ipr
+*.iws
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ---------- Local machine config ----------
+local.properties
+
+# ---------- Kotlin ----------
+.kotlin/
+
+# ---------- امنیت: keystore هرگز به مخزن عمومی کامیت نمی‌شود ----------
+*.keystore
+*.jks
+keystore.properties
+
+# ---------- Logs / heap dumps ----------
+*.log
+*.hprof
+
+# ---------- APK/AAB خارج از پوشهٔ build ----------
+*.apk
+*.aab
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db

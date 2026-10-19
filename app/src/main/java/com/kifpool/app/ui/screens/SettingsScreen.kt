@@ -1,0 +1,507 @@
+package com.kifpool.app.ui.screens
+
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricManager
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.Fingerprint
+import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Password
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Savings
+import androidx.compose.material.icons.rounded.WbSunny
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.kifpool.app.WalletViewModel
+import com.kifpool.app.ui.components.AmountDialog
+import com.kifpool.app.ui.components.ConfirmDialog
+import com.kifpool.app.ui.components.SectionTitle
+import com.kifpool.app.util.BackupJson
+import com.kifpool.app.util.Csv
+import com.kifpool.app.util.Fmt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+@Composable
+fun SettingsScreen(
+    vm: WalletViewModel,
+    onOpenReminders: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val dark by vm.darkMode.collectAsState()
+    val budget by vm.monthlyBudget.collectAsState()
+    val goal by vm.weeklyGoal.collectAsState()
+    val lockEnabled by vm.lockEnabled.collectAsState()
+    val biometricEnabled by vm.biometricEnabled.collectAsState()
+
+    val canBiometric = remember {
+        try {
+            BiometricManager.from(context)
+                .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) ==
+                BiometricManager.BIOMETRIC_SUCCESS
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    var editBudget by remember { mutableStateOf(false) }
+    var editGoal by remember { mutableStateOf(false) }
+    var confirmSample by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
+    var showPinDialog by remember { mutableStateOf(false) }
+    var confirmRemoveLock by remember { mutableStateOf(false) }
+    var confirmRestore by remember { mutableStateOf(false) }
+
+    // انتخاب فایل پشتیبان برای بازیابی
+    val restorePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val ok = vm.restoreBackup(context, uri)
+                Toast.makeText(
+                    context,
+                    if (ok) "بازیابی با موفقیت انجام شد" else "فایل پشتیبان معتبر نیست",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+    ) {
+        Spacer(Modifier.height(10.dp))
+        Text("تنظیمات", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "بودجه، امنیت، یادآورها و مدیریت داده‌های تو",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        SectionTitle("بودجه و اهداف")
+        SettingRow(
+            icon = Icons.Rounded.Savings,
+            title = "بودجه ماهانه",
+            subtitle = Fmt.money(budget) + " تومان",
+            onClick = { editBudget = true }
+        )
+        Spacer(Modifier.height(10.dp))
+        SettingRow(
+            icon = Icons.Rounded.Flag,
+            title = "هدف هفتگی هزینه",
+            subtitle = Fmt.money(goal) + " تومان",
+            onClick = { editGoal = true }
+        )
+
+        SectionTitle("یادآورها")
+        SettingRow(
+            icon = Icons.Rounded.Alarm,
+            title = "یادآورهای پرداخت",
+            subtitle = "یادآوری اجاره، قبض، قسط و هر پرداخت ماهانه",
+            onClick = onOpenReminders
+        )
+
+        SectionTitle("امنیت")
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("قفل برنامه", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (lockEnabled) "ورود با PIN و اثر انگشت فعال است"
+                        else "ورود سریع بدون رمز",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = lockEnabled,
+                    onCheckedChange = { enabled ->
+                        if (enabled) showPinDialog = true else confirmRemoveLock = true
+                    }
+                )
+            }
+        }
+        if (lockEnabled) {
+            Spacer(Modifier.height(10.dp))
+            SettingRow(
+                icon = Icons.Rounded.Password,
+                title = "تغییر رمز PIN",
+                subtitle = "یک رمز جدید برای ورود تعیین کن",
+                onClick = { showPinDialog = true }
+            )
+            Spacer(Modifier.height(10.dp))
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.Fingerprint,
+                        contentDescription = null,
+                        tint = if (canBiometric) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("ورود با اثر انگشت", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (canBiometric) "باز کردن سریع قفل با حسگر اثر انگشت"
+                            else "حسگر اثر انگشت روی این گوشی در دسترس نیست",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = biometricEnabled && canBiometric,
+                        enabled = canBiometric,
+                        onCheckedChange = { vm.setBiometricEnabled(it) }
+                    )
+                }
+            }
+        }
+
+        SectionTitle("ظاهر")
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.WbSunny,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("حالت شب", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "تم تیره مدرن برای چشم‌های راحت‌تر",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = dark, onCheckedChange = { vm.setDarkMode(it) })
+            }
+        }
+
+        SectionTitle("داده‌ها")
+        SettingRow(
+            icon = Icons.Rounded.FileDownload,
+            title = "خروجی CSV",
+            subtitle = "اشتراک‌گذاری همه تراکنش‌ها در قالب فایل اکسل",
+            onClick = {
+                scope.launch {
+                    val (txs, cats) = vm.snapshot()
+                    if (txs.isEmpty()) {
+                        Toast.makeText(
+                            context,
+                            "هنوز تراکنشی برای خروجی وجود ندارد",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        val file = withContext(Dispatchers.IO) {
+                            Csv.write(context, Csv.build(txs, cats))
+                        }
+                        Csv.share(context, file)
+                    }
+                }
+            }
+        )
+        Spacer(Modifier.height(10.dp))
+        SettingRow(
+            icon = Icons.Rounded.Backup,
+            title = "پشتیبان‌گیری JSON",
+            subtitle = "ذخیره کامل تراکنش‌ها، دسته‌ها و یادآورها در یک فایل",
+            onClick = {
+                scope.launch {
+                    val backup = vm.fullBackup()
+                    if (backup.transactions.isEmpty() && backup.categories.isEmpty() && backup.reminders.isEmpty()) {
+                        Toast.makeText(context, "داده‌ای برای پشتیبان‌گیری وجود ندارد", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val file = vm.writeBackupFile(context, backup)
+                        BackupJson.share(context, file)
+                    }
+                }
+            }
+        )
+        Spacer(Modifier.height(10.dp))
+        SettingRow(
+            icon = Icons.Rounded.FileUpload,
+            title = "بازیابی از فایل پشتیبان",
+            subtitle = "بازگرداندن داده‌ها از فایل JSON قبلی",
+            onClick = { confirmRestore = true }
+        )
+        Spacer(Modifier.height(10.dp))
+        SettingRow(
+            icon = Icons.Rounded.Refresh,
+            title = "بارگذاری داده نمونه",
+            subtitle = "پاک کردن داده‌ها و ساخت نمونه‌ی آزمایشی",
+            onClick = { confirmSample = true }
+        )
+        Spacer(Modifier.height(10.dp))
+        SettingRow(
+            icon = Icons.Rounded.Delete,
+            title = "پاک کردن همه داده‌ها",
+            subtitle = "حذف کامل تراکنش‌ها و دسته‌بندی‌ها",
+            danger = true,
+            onClick = { confirmClear = true }
+        )
+
+        SectionTitle("درباره")
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("کیف پول من", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "نسخه ۱٫۵٫۲ — مدیریت مالی شخصی، کاملاً آفلاین و خصوصی",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "داده‌ها فقط روی گوشی خودت ذخیره می‌شوند (Jetpack Compose + Room)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(Modifier.height(96.dp))
+    }
+
+    if (editBudget) {
+        AmountDialog(
+            title = "بودجه ماهانه (تومان)",
+            initial = budget,
+            onConfirm = { vm.setBudget(it); editBudget = false },
+            onDismiss = { editBudget = false }
+        )
+    }
+    if (editGoal) {
+        AmountDialog(
+            title = "هدف هفتگی هزینه (تومان)",
+            initial = goal,
+            onConfirm = { vm.setWeeklyGoal(it); editGoal = false },
+            onDismiss = { editGoal = false }
+        )
+    }
+    if (confirmSample) {
+        ConfirmDialog(
+            title = "بارگذاری داده نمونه",
+            text = "همه داده‌های فعلی پاک می‌شوند و داده‌های نمونه ساخته می‌شود. ادامه می‌دهی؟",
+            confirmLabel = "بارگذاری",
+            onConfirm = { vm.reloadSample(); confirmSample = false },
+            onDismiss = { confirmSample = false }
+        )
+    }
+    if (confirmClear) {
+        ConfirmDialog(
+            title = "پاک کردن همه داده‌ها",
+            text = "همه تراکنش‌ها و دسته‌بندی‌ها برای همیشه حذف می‌شوند. این کار قابل بازگشت نیست!",
+            confirmLabel = "پاک کن",
+            onConfirm = { vm.clearAll(); confirmClear = false },
+            onDismiss = { confirmClear = false }
+        )
+    }
+    if (confirmRemoveLock) {
+        ConfirmDialog(
+            title = "برداشتن قفل",
+            text = "رمز PIN و اثر انگشت حذف می‌شود و ورود به برنامه آزاد خواهد بود. ادامه می‌دهی؟",
+            confirmLabel = "برداشتن قفل",
+            onConfirm = { vm.removeLock(); confirmRemoveLock = false },
+            onDismiss = { confirmRemoveLock = false }
+        )
+    }
+    if (confirmRestore) {
+        ConfirmDialog(
+            title = "بازیابی از فایل پشتیبان",
+            text = "همه داده‌های فعلی پاک شده و داده‌های فایل پشتیبان جایگزین می‌شوند. ادامه می‌دهی؟",
+            confirmLabel = "انتخاب فایل",
+            onConfirm = {
+                confirmRestore = false
+                try {
+                    restorePicker.launch("application/json")
+                } catch (e: Exception) {
+                    restorePicker.launch("*/*")
+                }
+            },
+            onDismiss = { confirmRestore = false }
+        )
+    }
+    if (showPinDialog) {
+        PinSetupDialog(
+            onDismiss = { showPinDialog = false },
+            onSave = { pin ->
+                vm.setPin(pin)
+                showPinDialog = false
+                Toast.makeText(context, "قفل فعال شد", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+}
+
+@Composable
+private fun PinSetupDialog(
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var pin by remember { mutableStateOf("") }
+    var pin2 by remember { mutableStateOf("") }
+    val valid = pin.length in 4..6 && pin == pin2 && pin.all { it in '0'..'9' }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("تعیین رمز PIN") },
+        text = {
+            Column {
+                Text(
+                    "رمز ۴ تا ۶ رقمی برای ورود به برنامه",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it.filter { c -> c in '0'..'9' }.take(6) },
+                    label = { Text("رمز جدید") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = pin2,
+                    onValueChange = { pin2 = it.filter { c -> c in '0'..'9' }.take(6) },
+                    label = { Text("تکرار رمز") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (pin2.isNotEmpty() && pin != pin2) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "رمزها یکسان نیستند",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(pin) },
+                enabled = valid
+            ) { Text("فعال‌سازی قفل") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("انصراف") }
+        }
+    )
+}
+
+@Composable
+private fun SettingRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    danger: Boolean = false,
+    onClick: () -> Unit
+) {
+    val tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.large)
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(38.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = tint)
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
