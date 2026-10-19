@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Category
+import androidx.compose.material.icons.rounded.Handshake
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -31,6 +32,7 @@ import androidx.navigation.navArgument
 import com.kifpool.app.WalletViewModel
 import com.kifpool.app.ui.screens.AddEditScreen
 import com.kifpool.app.ui.screens.CategoriesScreen
+import com.kifpool.app.ui.screens.DebtsScreen
 import com.kifpool.app.ui.screens.HomeScreen
 import com.kifpool.app.ui.screens.LockScreen
 import com.kifpool.app.ui.screens.RemindersScreen
@@ -76,6 +78,7 @@ fun AppRoot(
         listOf(
             TabItem("home", "خانه", Icons.Rounded.Home),
             TabItem("stats", "آمار", Icons.Rounded.BarChart),
+            TabItem("debts", "دفتر", Icons.Rounded.Handshake),
             TabItem("categories", "دسته‌ها", Icons.Rounded.Category),
             TabItem("settings", "تنظیمات", Icons.Rounded.Settings)
         )
@@ -135,6 +138,7 @@ fun AppRoot(
                 HomeScreen(vm, onEdit = { id -> navController.navigate("edit/$id") })
             }
             composable("stats") { StatsScreen(vm) }
+            composable("debts") { DebtsScreen(vm) }
             composable("categories") { CategoriesScreen(vm) }
             composable("settings") {
                 SettingsScreen(

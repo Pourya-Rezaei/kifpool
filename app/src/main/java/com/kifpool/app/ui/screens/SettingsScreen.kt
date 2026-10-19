@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.Refresh
@@ -74,6 +75,7 @@ fun SettingsScreen(
     val goal by vm.weeklyGoal.collectAsState()
     val lockEnabled by vm.lockEnabled.collectAsState()
     val biometricEnabled by vm.biometricEnabled.collectAsState()
+    val securityQuestion by vm.securityQuestion.collectAsState()
 
     val canBiometric = remember {
         try {
@@ -185,6 +187,15 @@ fun SettingsScreen(
                 icon = Icons.Rounded.Password,
                 title = "تغییر رمز PIN",
                 subtitle = "یک رمز جدید برای ورود تعیین کن",
+                onClick = { showPinDialog = true }
+            )
+            Spacer(Modifier.height(10.dp))
+            SettingRow(
+                icon = Icons.Rounded.HelpOutline,
+                title = "سوال امنیتی بازیابی",
+                subtitle = securityQuestion.ifBlank {
+                    "هنوز تعیین نشده — برای فراموشی رمز، آن را از «تغییر رمز PIN» تنظیم کن"
+                },
                 onClick = { showPinDialog = true }
             )
             Spacer(Modifier.height(10.dp))
@@ -323,7 +334,7 @@ fun SettingsScreen(
                 Text("کیف پول من", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "نسخه ۱٫۵٫۲ — مدیریت مالی شخصی، کاملاً آفلاین و خصوصی",
+                    "نسخه ۱٫۶٫۰ — دفتر حساب، بودجهٔ دسته‌بندی و سوال امنیتی",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -399,8 +410,11 @@ fun SettingsScreen(
     if (showPinDialog) {
         PinSetupDialog(
             onDismiss = { showPinDialog = false },
-            onSave = { pin ->
+            onSave = { pin, question, answer ->
                 vm.setPin(pin)
+                if (question.isNotBlank() && answer.isNotBlank()) {
+                    vm.setSecurityQuestion(question, answer)
+                }
                 showPinDialog = false
                 Toast.makeText(context, "قفل فعال شد", Toast.LENGTH_SHORT).show()
             }
@@ -411,10 +425,12 @@ fun SettingsScreen(
 @Composable
 private fun PinSetupDialog(
     onDismiss: () -> Unit,
-    onSave: (String) -> Unit
+    onSave: (pin: String, question: String, answer: String) -> Unit
 ) {
     var pin by remember { mutableStateOf("") }
     var pin2 by remember { mutableStateOf("") }
+    var question by remember { mutableStateOf("") }
+    var answer by remember { mutableStateOf("") }
     val valid = pin.length in 4..6 && pin == pin2 && pin.all { it in '0'..'9' }
 
     AlertDialog(
@@ -451,11 +467,33 @@ private fun PinSetupDialog(
                         color = MaterialTheme.colorScheme.error
                     )
                 }
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "سوال امنیتی (پیشنهاد می‌شود) — اگر رمز را فراموش کردی با پاسخ آن وارد شوی",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = question,
+                    onValueChange = { question = it.take(60) },
+                    label = { Text("مثلاً: نام بهترین دوستت؟") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = answer,
+                    onValueChange = { answer = it.take(40) },
+                    label = { Text("پاسخ") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(pin) },
+                onClick = { onSave(pin, question, answer) },
                 enabled = valid
             ) { Text("فعال‌سازی قفل") }
         },

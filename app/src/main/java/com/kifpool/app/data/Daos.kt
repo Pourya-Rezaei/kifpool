@@ -52,4 +52,29 @@ interface CategoryDao {
 
     @Query("DELETE FROM categories")
     suspend fun deleteAll()
+
+    @Update
+    suspend fun update(cat: CategoryEntity)
+}
+
+@Dao
+interface DebtDao {
+
+    @Query("SELECT * FROM debts ORDER BY settled ASC, id DESC")
+    fun observeAll(): Flow<List<DebtEntity>>
+
+    @Query("SELECT COUNT(*) FROM debts")
+    suspend fun count(): Int
+
+    @Insert
+    suspend fun insert(debt: DebtEntity): Long
+
+    @Update
+    suspend fun update(debt: DebtEntity)
+
+    @Delete
+    suspend fun delete(debt: DebtEntity)
+
+    @Query("DELETE FROM debts")
+    suspend fun deleteAll()
 }

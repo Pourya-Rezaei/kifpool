@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import com.kifpool.app.data.CategoryEntity
+import com.kifpool.app.data.DebtEntity
+import com.kifpool.app.data.DebtType
 import com.kifpool.app.data.ReminderEntity
 import com.kifpool.app.data.TransactionEntity
 import com.kifpool.app.logic.Jalali
@@ -27,15 +29,16 @@ object BackupJson {
     data class Backup(
         val categories: List<CategoryEntity>,
         val transactions: List<TransactionEntity>,
-        val reminders: List<ReminderEntity>
+        val reminders: List<ReminderEntity>,
+        val debts: List<DebtEntity> = emptyList()
     )
 
     // ---- export ---------------------------------------------------------------
 
-    fun build(txs: List<TransactionEntity>, cats: List<CategoryEntity>, reminders: List<ReminderEntity>): String {
+    fun build(txs: List<TransactionEntity>, cats: List<CategoryEntity>, reminders: List<ReminderEntity>, debts: List<DebtEntity> = emptyList()): String {
         val root = JSONObject()
         root.put("app", "kifpool")
-        root.put("backupVersion", 1)
+        root.put("backupVersion", 2)
         val j = Jalali.toJalali(LocalDate.now())
         root.put("exportedAt", Fmt.fa(j.year.toString() + "/" + j.month + "/" + j.day))
 
@@ -49,6 +52,7 @@ object BackupJson {
                     .put("icon", c.icon)
                     .put("color", c.color)
                     .put("isDefault", c.isDefault)
+                    .put("budgetAmount", c.budgetAmount)
             )
         }
 
@@ -75,9 +79,24 @@ object BackupJson {
             )
         }
 
+        val debtArr = JSONArray()
+        for (d in debts) {
+            debtArr.put(
+                JSONObject()
+                    .put("person", d.person)
+                    .put("amount", d.amount)
+                    .put("type", d.type)
+                    .put("note", d.note)
+                    .put("createdDate", d.createdDate)
+                    .put("dueDate", d.dueDate)
+                    .put("settled", d.settled)
+            )
+        }
+
         root.put("categories", catsArr)
         root.put("transactions", txsArr)
         root.put("reminders", remArr)
+        root.put("debts", debtArr)
         return root.toString(2)
     }
 
@@ -137,7 +156,8 @@ object BackupJson {
                         type = o.optInt("type", 0),
                         icon = o.optString("icon", "wallet"),
                         color = o.optString("color", "#F97316"),
-                        isDefault = o.optBoolean("isDefault", false)
+                        isDefault = o.optBoolean("isDefault", false),
+                        budgetAmount = o.optLong("budgetAmount", 0L)
                     )
                 )
             }
@@ -171,7 +191,24 @@ object BackupJson {
                 )
             }
 
-            Backup(cats, txs, rems)
+            val debts = mutableListOf<DebtEntity>()
+            val debtArr = root.optJSONArray("debts") ?: JSONArray()
+            for (i in 0 until debtArr.length()) {
+                val o = debtArr.getJSONObject(i)
+                debts.add(
+                    DebtEntity(
+                        person = o.optString("person"),
+                        amount = o.optLong("amount", 0L),
+                        type = if (o.optInt("type", DebtType.DEBT) == DebtType.CREDIT) DebtType.CREDIT else DebtType.DEBT,
+                        note = o.optString("note", ""),
+                        createdDate = o.optLong("createdDate", 0L),
+                        dueDate = o.optLong("dueDate", 0L),
+                        settled = o.optBoolean("settled", false)
+                    )
+                )
+            }
+
+            Backup(cats, txs, rems, debts)
         } catch (e: Exception) {
             null
         }

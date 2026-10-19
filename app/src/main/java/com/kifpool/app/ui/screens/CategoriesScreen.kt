@@ -18,10 +18,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Savings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,13 +45,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.kifpool.app.WalletViewModel
+import com.kifpool.app.data.AppData
 import com.kifpool.app.data.CategoryEntity
 import com.kifpool.app.data.TxType
 import com.kifpool.app.ui.components.CategoryAvatar
 import com.kifpool.app.ui.components.ConfirmDialog
+import com.kifpool.app.ui.components.ProgressBar
 import com.kifpool.app.ui.components.SectionTitle
 import com.kifpool.app.util.Fmt
 import com.kifpool.app.util.Presets
@@ -57,10 +63,12 @@ import kotlinx.coroutines.launch
 @Composable
 fun CategoriesScreen(vm: WalletViewModel) {
     val categories by vm.categories.collectAsState()
+    val data by vm.data.collectAsState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var showAdd by remember { mutableStateOf(false) }
     var toDelete by remember { mutableStateOf<CategoryEntity?>(null) }
+    var budgetFor by remember { mutableStateOf<CategoryEntity?>(null) }
 
     Column(
         Modifier
@@ -71,7 +79,7 @@ fun CategoriesScreen(vm: WalletViewModel) {
         Spacer(Modifier.height(10.dp))
         Text("دسته‌بندی‌ها", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "دسته‌بندی‌های دلخواه خودت را بساز؛ حذف دسته‌ای که تراکنش دارد ممکن نیست",
+            "با آیکون «بودجه» می‌توانی برای هر دستهٔ هزینه سقف ماهانه تعیین کنی",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -107,10 +115,10 @@ fun CategoriesScreen(vm: WalletViewModel) {
         val incomes = categories.filter { it.type == TxType.INCOME }
 
         SectionTitle("هزینه‌ها (" + Fmt.fa(expenses.size) + ")")
-        CategoryCard(expenses) { toDelete = it }
+        CategoryCard(expenses, data, onBudget = { budgetFor = it }) { toDelete = it }
 
         SectionTitle("درآمدها (" + Fmt.fa(incomes.size) + ")")
-        CategoryCard(incomes) { toDelete = it }
+        CategoryCard(incomes, null, onBudget = null) { toDelete = it }
 
         Spacer(Modifier.height(96.dp))
     }
@@ -121,6 +129,21 @@ fun CategoriesScreen(vm: WalletViewModel) {
             onSave = { name, type, icon, color ->
                 vm.addCategory(name, type, icon, color)
                 showAdd = false
+            }
+        )
+    }
+
+    budgetFor?.let { cat ->
+        BudgetDialog(
+            category = cat,
+            onDismiss = { budgetFor = null },
+            onSave = { amount ->
+                vm.setCategoryBudget(cat, amount)
+                budgetFor = null
+            },
+            onRemove = {
+                vm.setCategoryBudget(cat, 0)
+                budgetFor = null
             }
         )
     }
@@ -149,7 +172,12 @@ fun CategoriesScreen(vm: WalletViewModel) {
 }
 
 @Composable
-private fun CategoryCard(cats: List<CategoryEntity>, onDelete: (CategoryEntity) -> Unit) {
+private fun CategoryCard(
+    cats: List<CategoryEntity>,
+    data: AppData?,
+    onBudget: ((CategoryEntity) -> Unit)?,
+    onDelete: (CategoryEntity) -> Unit
+) {
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface,
@@ -165,35 +193,73 @@ private fun CategoryCard(cats: List<CategoryEntity>, onDelete: (CategoryEntity) 
                 )
             }
             cats.forEach { cat ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
+                val spent = data?.spentInCategory(cat.id) ?: 0L
+                val hasBudget = cat.budgetAmount > 0
+                val overBudget = hasBudget && spent > cat.budgetAmount
+                Column(
+                    Modifier
                         .fillMaxWidth()
                         .clip(MaterialTheme.shapes.medium)
                         .padding(horizontal = 4.dp, vertical = 2.dp)
                 ) {
-                    CategoryAvatar(cat)
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        cat.name,
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1
-                    )
-                    if (cat.isDefault) {
-                        Text(
-                            "پیش‌فرض",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.width(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CategoryAvatar(cat)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                cat.name,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1
+                            )
+                            if (hasBudget) {
+                                Text(
+                                    text = Fmt.money(spent) + " از " + Fmt.money(cat.budgetAmount) + " تومان",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (overBudget) MaterialTheme.colorScheme.error
+                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        if (onBudget != null) {
+                            IconButton(onClick = { onBudget(cat) }) {
+                                Icon(
+                                    Icons.Rounded.Savings,
+                                    contentDescription = "بودجه " + cat.name,
+                                    tint = if (hasBudget) MaterialTheme.colorScheme.primary
+                                           else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        if (cat.isDefault) {
+                            Text(
+                                "پیش‌فرض",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        IconButton(onClick = { onDelete(cat) }) {
+                            Icon(
+                                Icons.Rounded.Delete,
+                                contentDescription = "حذف " + cat.name,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                    IconButton(onClick = { onDelete(cat) }) {
-                        Icon(
-                            Icons.Rounded.Delete,
-                            contentDescription = "حذف " + cat.name,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    if (hasBudget) {
+                        Spacer(Modifier.height(2.dp))
+                        val fraction = spent.toFloat() / cat.budgetAmount
+                        ProgressBar(
+                            fraction = fraction,
+                            color = when {
+                                overBudget -> MaterialTheme.colorScheme.error
+                                fraction >= 0.8f -> MaterialTheme.colorScheme.tertiary
+                                else -> MaterialTheme.colorScheme.primary
+                            },
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            modifier = Modifier.padding(start = 54.dp, end = 8.dp)
                         )
+                        Spacer(Modifier.height(6.dp))
                     }
                 }
             }
@@ -306,6 +372,63 @@ private fun TypeToggle(
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
     }
+}
+
+/** دیالوگ تعیین بودجهٔ ماهانهٔ یک دستهٔ هزینه. */
+@Composable
+private fun BudgetDialog(
+    category: CategoryEntity,
+    onDismiss: () -> Unit,
+    onSave: (Long) -> Unit,
+    onRemove: () -> Unit
+) {
+    var text by remember { mutableStateOf(Fmt.amountInput(category.budgetAmount.toString())) }
+    val amount = Fmt.parseAmount(text)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("بودجهٔ ماهانه «" + category.name + "»") },
+        text = {
+            Column {
+                Text(
+                    "سقف هزینهٔ این دسته در هر ماه شمسی",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = Fmt.amountInput(it) },
+                    label = { Text("بودجه (تومان)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "وقتی مصرف از ۸۰٪ بودجه رد شود، در خانه هشدار می‌بینی",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = amount > 0,
+                onClick = { onSave(amount) }
+            ) { Text("ذخیره") }
+        },
+        dismissButton = {
+            Row {
+                if (category.budgetAmount > 0) {
+                    TextButton(onClick = onRemove) {
+                        Text("حذف بودجه", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                TextButton(onClick = onDismiss) { Text("انصراف") }
+            }
+        }
+    )
 }
 
 @Composable

@@ -21,10 +21,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Backspace
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -63,6 +66,12 @@ fun LockScreen(
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
     var bioTried by remember { mutableStateOf(false) }
+
+    // فراموشی رمز (نسخهٔ ۱٫۶)
+    val securityQuestion by vm.securityQuestion.collectAsState()
+    var showForgot by remember { mutableStateOf(false) }
+    var forgotAnswer by remember { mutableStateOf("") }
+    var forgotError by remember { mutableStateOf(false) }
 
     val canBiometric = remember {
         try {
@@ -243,6 +252,13 @@ fun LockScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
+            // بازیابی با سوال امنیتی (نسخهٔ ۱٫۶)
+            if (securityQuestion.isNotBlank()) {
+                TextButton(onClick = { showForgot = true }) {
+                    Text("فراموشی رمز؟", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
             // دکمه تأیید برای PINهای ۴ یا ۵ رقمی
             if (pin.length in 4..5) {
                 Spacer(Modifier.height(8.dp))
@@ -264,6 +280,70 @@ fun LockScreen(
                 }
             }
         }
+    }
+
+    // ---------- دیالوگ بازیابی با سوال امنیتی ----------
+    if (showForgot) {
+        AlertDialog(
+            onDismissRequest = {
+                showForgot = false
+                forgotError = false
+            },
+            title = { Text("بازیابی رمز") },
+            text = {
+                Column {
+                    Text(
+                        securityQuestion,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = forgotAnswer,
+                        onValueChange = {
+                            forgotAnswer = it
+                            forgotError = false
+                        },
+                        label = { Text("پاسخ تو") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (forgotError) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "پاسخ درست نیست؛ دوباره تلاش کن",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "با پاسخ درست، قفل برداشته می‌شود و می‌توانی رمز جدید بگذاری",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = forgotAnswer.isNotBlank(),
+                    onClick = {
+                        if (vm.checkSecurityAnswer(forgotAnswer)) {
+                            vm.recoverLock()
+                            showForgot = false
+                            onUnlock()
+                        } else {
+                            forgotError = true
+                        }
+                    }
+                ) { Text("باز کردن برنامه") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showForgot = false
+                    forgotError = false
+                }) { Text("انصراف") }
+            }
+        )
     }
 }
 

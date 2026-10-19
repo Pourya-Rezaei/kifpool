@@ -99,6 +99,31 @@ data class AppData(
 
     val recentTxs: List<TransactionEntity> get() = monthTxs.take(8)
 
+    // ---- بودجهٔ دسته‌بندی‌ها (نسخهٔ ۱٫۶) ------------------------------------
+
+    /** هزینه‌کرد ماهِ انتخاب‌شده برای یک دستهٔ خاص. */
+    fun spentInCategory(categoryId: Long): Long =
+        monthTxs.filter { it.categoryId == categoryId }.sumOf { it.amount }
+
+    /**
+     * دسته‌هایی که بودجه دارند و باید هشدار بدهند:
+     * مصرف از ۸۰٪ گذشته باشد (حتی اگر بودجه هنوز تمام نشده).
+     */
+    val budgetAlerts: List<CategoryStat> by lazy {
+        categoryStats.filter { stat ->
+            val budget = stat.category.budgetAmount
+            budget > 0 && stat.total >= budget * 80 / 100
+        }
+    }
+
+    /** جمع بدهی‌ها/طلب‌های تسویه‌نشده از دفتر حساب. */
+    fun debtTotals(debts: List<DebtEntity>): Pair<Long, Long> {
+        val open = debts.filter { !it.settled }
+        val credit = open.filter { it.type == DebtType.CREDIT }.sumOf { it.amount }
+        val debt = open.filter { it.type == DebtType.DEBT }.sumOf { it.amount }
+        return credit to debt
+    }
+
     /** جمع درآمد و هزینه هر ماه شمسی دلخواه — برای مقایسه ماهانه. */
     fun totalsFor(key: Jalali.MonthKey): Pair<Long, Long> {
         val start = Jalali.monthStartMillis(key)

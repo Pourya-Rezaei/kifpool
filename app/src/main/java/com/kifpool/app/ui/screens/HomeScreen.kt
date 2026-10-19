@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.ReceiptLong
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -178,6 +179,56 @@ fun HomeScreen(vm: WalletViewModel, onEdit: (Long) -> Unit) {
                 value = Fmt.money(d.dailyAverage),
                 modifier = Modifier.weight(1f)
             )
+        }
+
+        // ---------- category budget alerts ----------
+        if (d.budgetAlerts.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.30f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Rounded.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "هشدار بودجهٔ دسته‌ها",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    d.budgetAlerts.forEach { alert ->
+                        val over = alert.total > alert.category.budgetAmount
+                        Spacer(Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                alert.category.name,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                Fmt.money(alert.total) + " از " + Fmt.money(alert.category.budgetAmount) + " تومان",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (over) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        ProgressBar(
+                            fraction = alert.total.toFloat() / alert.category.budgetAmount,
+                            color = if (over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary,
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                        )
+                    }
+                }
+            }
         }
 
         // ---------- recent transactions ----------

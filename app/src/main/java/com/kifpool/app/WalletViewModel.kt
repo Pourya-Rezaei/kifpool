@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import com.kifpool.app.data.AppData
 import com.kifpool.app.data.AppDatabase
 import com.kifpool.app.data.CategoryEntity
+import com.kifpool.app.data.DebtEntity
+import com.kifpool.app.data.DebtType
 import com.kifpool.app.data.ReminderEntity
 import com.kifpool.app.data.TransactionEntity
 import com.kifpool.app.logic.Jalali
@@ -34,6 +36,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     private val txDao = db.transactionDao()
     private val catDao = db.categoryDao()
     private val remDao = db.reminderDao()
+    private val debtDao = db.debtDao()
     private val prefs = app.getSharedPreferences("kifpool_prefs", Context.MODE_PRIVATE)
 
     // ---- settings ---------------------------------------------------------
@@ -73,6 +76,65 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteReminder(reminder: ReminderEntity) =
         viewModelScope.launch(Dispatchers.IO) { remDao.delete(reminder) }
 
+    // ---- دفتر طلب و بدهی (نسخهٔ ۱٫۶) ----------------------------------------
+    val debts: StateFlow<List<DebtEntity>> = debtDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun saveDebt(
+        id: Long?,
+        person: String,
+        amount: Long,
+        type: Int,
+        note: String,
+        dueDate: Long
+    ) = viewModelScope.launch(Dispatchers.IO) {
+        if (person.isBlank() || amount <= 0) return@launch
+        if (id == null) {
+            debtDao.insert(
+                DebtEntity(
+                    person = person.trim(),
+                    amount = amount,
+                    type = type,
+                    note = note.trim(),
+                    createdDate = System.currentTimeMillis(),
+                    dueDate = dueDate,
+                    settled = false
+                )
+            )
+        } else {
+            val existing = debtDao.observeAll().first().find { it.id == id } ?: return@launch
+            debtDao.update(
+                existing.copy(
+                    person = person.trim(),
+                    amount = amount,
+                    type = type,
+                    note = note.trim(),
+                    dueDate = dueDate
+                )
+            )
+        }
+    }
+
+    fun setDebtSettled(debt: DebtEntity, settled: Boolean) =
+        viewModelScope.launch(Dispatchers.IO) { debtDao.update(debt.copy(settled = settled)) }
+
+    fun deleteDebt(debt: DebtEntity) =
+        viewModelScope.launch(Dispatchers.IO) { debtDao.delete(debt) }
+
+    /** ساخت یادآور ماهانه از روی یک بدهی (سررسید روز ماه یا امروز). */
+    fun createReminderForDebt(debt: DebtEntity, dayOfMonth: Int) =
+        viewModelScope.launch(Dispatchers.IO) {
+            val title = if (debt.type == DebtType.CREDIT) "طلب از " + debt.person
+                        else "بدهی به " + debt.person
+            remDao.insert(
+                ReminderEntity(
+                    title = title,
+                    amount = debt.amount,
+                    dayOfMonth = dayOfMonth.coerceIn(1, 31)
+                )
+            )
+        }
+
     // ---- lock (قفل PIN + اثر انگشت) -------------------------------------------
     private val _lockEnabled = MutableStateFlow(prefs.getBoolean(KEY_LOCK, false))
     val lockEnabled: StateFlow<Boolean> = _lockEnabled.asStateFlow()
@@ -104,6 +166,28 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putBoolean(KEY_BIO, v).apply()
     }
 
+    // ---- سوال امنیتی (بازیابی PIN — نسخهٔ ۱٫۶) ---------------------------------
+    private val _securityQuestion = MutableStateFlow(prefs.getString(KEY_SEC_Q, "") ?: "")
+    val securityQuestion: StateFlow<String> = _securityQuestion.asStateFlow()
+
+    fun setSecurityQuestion(question: String, answer: String) {
+        val q = question.trim()
+        val a = answer.trim()
+        if (q.isEmpty() || a.isEmpty()) return
+        prefs.edit().putString(KEY_SEC_Q, q).putString(KEY_SEC_A, sha256(a)).apply()
+        _securityQuestion.value = q
+    }
+
+    fun checkSecurityAnswer(answer: String): Boolean {
+        val stored = prefs.getString(KEY_SEC_A, null) ?: return false
+        return stored == sha256(answer.trim())
+    }
+
+    /** برداشتن قفل پس از پاسخ درست سوال امنیتی — کاربر باید رمز جدید بگذارد. */
+    fun recoverLock() {
+        removeLock()
+    }
+
     private fun sha256(text: String): String = try {
         val digest = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
         digest.joinToString("") { "%02x".format(it) }
@@ -116,12 +200,13 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         val txs = txDao.observeAll().first()
         val cats = catDao.observeAll().first()
         val rems = remDao.observeAll().first()
-        BackupJson.Backup(cats, txs, rems)
+        val debts = debtDao.observeAll().first()
+        BackupJson.Backup(cats, txs, rems, debts)
     }
 
     suspend fun writeBackupFile(context: Context, backup: BackupJson.Backup): File =
         withContext(Dispatchers.IO) {
-            BackupJson.write(context, BackupJson.build(backup.transactions, backup.categories, backup.reminders))
+            BackupJson.write(context, BackupJson.build(backup.transactions, backup.categories, backup.reminders, backup.debts))
         }
 
     /** بازیابی کامل داده‌ها از فایل پشتیبان. در موفقیت true برمی‌گرداند. */
@@ -131,6 +216,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         txDao.deleteAll()
         catDao.deleteAll()
         remDao.deleteAll()
+        debtDao.deleteAll()
         val idMap = mutableMapOf<Long, Long>()
         for (cat in backup.categories) {
             val newId = catDao.insert(cat.copy(id = 0))
@@ -141,6 +227,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
         for (rem in backup.reminders) {
             if (rem.title.isNotBlank()) remDao.insert(rem.copy(id = 0))
+        }
+        for (debt in backup.debts) {
+            if (debt.person.isNotBlank()) debtDao.insert(debt.copy(id = 0))
         }
         true
     }
@@ -218,6 +307,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
 
+    /** تعیین بودجهٔ ماهانه برای یک دسته (۰ = بدون بودجه). */
+    fun setCategoryBudget(category: CategoryEntity, budget: Long) =
+        viewModelScope.launch(Dispatchers.IO) {
+            catDao.update(category.copy(budgetAmount = budget.coerceAtLeast(0)))
+        }
+
     /** Returns false when the category still has transactions and cannot be removed. */
     suspend fun deleteCategory(cat: CategoryEntity): Boolean = withContext(Dispatchers.IO) {
         if (txDao.countForCategory(cat.id) > 0) {
@@ -257,5 +352,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         private const val KEY_LOCK = "lock_enabled"
         private const val KEY_PIN = "lock_pin_hash"
         private const val KEY_BIO = "biometric_enabled"
+        private const val KEY_SEC_Q = "security_question"
+        private const val KEY_SEC_A = "security_answer_hash"
     }
 }
