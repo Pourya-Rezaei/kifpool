@@ -33,7 +33,7 @@ import com.kifpool.app.worker.ReminderWorker
  * - launchMode=singleTask در Manifest: کلیک روی اعلان، اکتیویتی را دوباره نمی‌سازد
  *   و از مسیر onNewIntent می‌آید (رفع کرش نسخه ۱٫۵٫۱).
  * - lifecycle observer: رفتن به پس‌زمینه، دوباره قفل می‌کند (وقتی قفل فعال باشد).
- * - اسپلش برند (نسخهٔ ۱٫۷): فقط در شروع سرد، با Crossfade نرم به AppRoot.
+ * - اسپلش برند: فقط در شروع سرد، با Crossfade نرم به AppRoot.
  */
 class MainActivity : FragmentActivity() {
 

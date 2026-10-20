@@ -281,8 +281,23 @@ fun SettingsScreen(
             Column(Modifier.padding(16.dp)) {
                 Text("کیف پول من", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
+                // نسخه به‌صورت پویا از PackageManager خوانده می‌شود تا هرگز کهنه نشود
+                val versionName = remember {
+                    try {
+                        context.packageManager.getPackageInfo(context.packageName, 0)
+                            .versionName ?: "?"
+                    } catch (e: Exception) {
+                        "?"
+                    }
+                }
                 Text(
-                    "نسخه ۱٫۶٫۱ — سخت‌سازی امنیتی، ضد حملهٔ جست‌وجوی فراگیر و تست‌های واحد",
+                    "نسخه " + Fmt.fa(versionName).replace('.', '٫'),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "دستیار مالی شخصی: دفتر خرج و درآمد، بودجه، طلب و بدهی، اهداف پس‌انداز و تراکنش‌های دوره‌ای — کاملاً آفلاین",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
