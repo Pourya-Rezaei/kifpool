@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FileDownload
@@ -68,7 +69,9 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SettingsScreen(
     vm: WalletViewModel,
-    onOpenReminders: () -> Unit = {}
+    onOpenReminders: () -> Unit = {},
+    onOpenRecurring: () -> Unit = {},
+    onOpenGoals: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -132,6 +135,21 @@ fun SettingsScreen(
             title = "هدف هفتگی هزینه",
             subtitle = Fmt.money(goal) + " تومان",
             onClick = { editGoal = true }
+        )
+
+        SectionTitle("دستیار مالی")
+        SettingRow(
+            icon = Icons.Rounded.Repeat,
+            title = "تراکنش‌های تکراری",
+            subtitle = "ثبت خودکار اجاره، قسط، اشتراک و حقوق‌های دوره‌ای",
+            onClick = onOpenRecurring
+        )
+        Spacer(Modifier.height(10.dp))
+        SettingRow(
+            icon = Icons.Rounded.Savings,
+            title = "اهداف پس‌انداز",
+            subtitle = "پس‌انداز قدم‌به‌قدم برای سفر، گوشی و رویاهایت",
+            onClick = onOpenGoals
         )
 
         SectionTitle("یادآورها")

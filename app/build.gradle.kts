@@ -13,8 +13,8 @@ android {
         applicationId = "com.kifpool.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.6.1"
+        versionCode = 8
+        versionName = "1.8.0"
     }
 
     signingConfigs {

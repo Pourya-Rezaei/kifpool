@@ -29,6 +29,7 @@ object ReminderScheduler {
 
     const val CHANNEL_ID = "kifpool_reminders"
     const val EXTRA_OPEN_REMINDERS = "extra_open_reminders"
+    const val EXTRA_OPEN_RECURRING = "extra_open_recurring"
     private const val CHANNEL_NAME = "یادآورهای پرداخت"
 
     fun ensureChannel(context: Context) {
@@ -56,36 +57,81 @@ object ReminderScheduler {
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
     }
 
-    /** نمایش اعلان یک یادآور — کاملاً ایمن، در هر حالتی فقط try/catch. */
+    /** نمایش یادآور کلاسیک — روی متد عمومی [notifyPayment] سوار شده (DRY). */
     fun notifyReminder(context: Context, reminder: ReminderEntity) {
+        val body = buildString {
+            append("یادآوری: ")
+            append(reminder.title)
+            if (reminder.amount > 0) {
+                append(" — مبلغ ")
+                append(Fmt.money(reminder.amount))
+                append(" تومان")
+            }
+        }
+        notifyPayment(
+            context = context,
+            notificationId = reminder.id.toInt(),
+            title = "🔔 " + reminder.title,
+            body = body,
+            openRecurring = false,
+            deepLinkRequestId = reminder.id.toInt()
+        )
+    }
+
+    /** یادآور سررسید تراکنش تکراری — با دبیلینک به صفحهٔ تکرارشوها. */
+    fun notifyRecurring(context: Context, rec: com.kifpool.app.data.RecurringTransactionEntity) {
+        val body = buildString {
+            append("سررسید رسیده: ")
+            append(rec.title)
+            append(" — ")
+            append(Fmt.money(rec.amount))
+            append(" تومان")
+            if (!rec.autoAdd) append(" (فقط یادآوری)")
+        }
+        notifyPayment(
+            context = context,
+            notificationId = (rec.id + 100_000).toInt(), // فاصله از آیدی یادآورها
+            title = "🔁 " + rec.title,
+            body = body,
+            openRecurring = true,
+            deepLinkRequestId = rec.id.toInt()
+        )
+    }
+
+    /**
+     * هستهٔ مشترک ساخت اعلان (DRY):
+     * همهٔ اعلان‌ها از این مسیر می‌گذرند تا فلگ‌های امن و چک دسترسی یک‌جا باشند.
+     */
+    private fun notifyPayment(
+        context: Context,
+        notificationId: Int,
+        title: String,
+        body: String,
+        openRecurring: Boolean,
+        deepLinkRequestId: Int
+    ) {
         try {
             ensureChannel(context)
             if (!canNotify(context)) return
 
             val intent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra(EXTRA_OPEN_REMINDERS, true)
+                if (openRecurring) {
+                    putExtra(EXTRA_OPEN_RECURRING, true)
+                } else {
+                    putExtra(EXTRA_OPEN_REMINDERS, true)
+                }
             }
             val pendingIntent = PendingIntent.getActivity(
                 context,
-                reminder.id.toInt(),
+                deepLinkRequestId,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            val body = buildString {
-                append("یادآوری: ")
-                append(reminder.title)
-                if (reminder.amount > 0) {
-                    append(" — مبلغ ")
-                    append(Fmt.money(reminder.amount))
-                    append(" تومان")
-                }
-            }
-
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("🔔 " + reminder.title)
+                .setContentTitle(title)
                 .setContentText(body)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -94,7 +140,7 @@ object ReminderScheduler {
                 .setContentIntent(pendingIntent)
                 .build()
 
-            NotificationManagerCompat.from(context).notify(reminder.id.toInt(), notification)
+            NotificationManagerCompat.from(context).notify(notificationId, notification)
         } catch (e: Exception) {
             // هیچ‌وقت به‌خاطر اعلان، برنامه نباید کرش کند
         }

@@ -10,8 +10,12 @@ import com.kifpool.app.data.AppDatabase
 import com.kifpool.app.data.CategoryEntity
 import com.kifpool.app.data.DebtEntity
 import com.kifpool.app.data.DebtType
+import com.kifpool.app.data.GoalContributionEntity
+import com.kifpool.app.data.RecurringTransactionEntity
 import com.kifpool.app.data.ReminderEntity
+import com.kifpool.app.data.SavingsGoalEntity
 import com.kifpool.app.data.TransactionEntity
+import androidx.room.withTransaction
 import com.kifpool.app.logic.Jalali
 import com.kifpool.app.security.Pbkdf2Hasher
 import com.kifpool.app.security.SecurityManager
@@ -26,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -39,6 +44,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     private val catDao = db.categoryDao()
     private val remDao = db.reminderDao()
     private val debtDao = db.debtDao()
+    private val recDao = db.recurringDao()
+    private val goalDao = db.goalDao()
+    private val contribDao = db.goalContributionDao()
     private val prefs = app.getSharedPreferences("kifpool_prefs", Context.MODE_PRIVATE)
 
     // ---- settings ---------------------------------------------------------
@@ -137,6 +145,132 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
 
+    // ---- تراکنش‌های تکراری (نسخهٔ ۱٫۸) ---------------------------------------
+    val recurring: StateFlow<List<RecurringTransactionEntity>> = recDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun saveRecurring(
+        id: Long?,
+        title: String,
+        amount: Long,
+        type: Int,
+        categoryId: Long,
+        frequency: Int,
+        dayOfMonth: Int,
+        weekday: Int,
+        monthOfYear: Int,
+        autoAdd: Boolean,
+        note: String
+    ) = viewModelScope.launch(Dispatchers.IO) {
+        if (title.isBlank() || amount <= 0) return@launch
+        if (id == null) {
+            recDao.insert(
+                RecurringTransactionEntity(
+                    title = title.trim(),
+                    amount = amount,
+                    type = type,
+                    categoryId = categoryId,
+                    frequency = frequency,
+                    dayOfMonth = dayOfMonth.coerceIn(1, 31),
+                    weekday = weekday.coerceIn(0, 6),
+                    monthOfYear = monthOfYear.coerceIn(1, 12),
+                    autoAdd = autoAdd,
+                    note = note.trim(),
+                    enabled = true,
+                    startDate = com.kifpool.app.logic.Jalali.startOfDayMillis(java.time.LocalDate.now()),
+                    lastRunDate = 0
+                )
+            )
+        } else {
+            val existing = recDao.observeAll().first().find { it.id == id } ?: return@launch
+            recDao.update(
+                existing.copy(
+                    title = title.trim(),
+                    amount = amount,
+                    type = type,
+                    categoryId = categoryId,
+                    frequency = frequency,
+                    dayOfMonth = dayOfMonth.coerceIn(1, 31),
+                    weekday = weekday.coerceIn(0, 6),
+                    monthOfYear = monthOfYear.coerceIn(1, 12),
+                    autoAdd = autoAdd,
+                    note = note.trim()
+                )
+            )
+        }
+        // فوراً چک کن — شاید سررسید جدید همین امروز باشد
+        com.kifpool.app.worker.ReminderWorker.checkNow(getApplication())
+    }
+
+    fun setRecurringEnabled(rec: RecurringTransactionEntity, enabled: Boolean) =
+        viewModelScope.launch(Dispatchers.IO) { recDao.update(rec.copy(enabled = enabled)) }
+
+    fun deleteRecurring(rec: RecurringTransactionEntity) =
+        viewModelScope.launch(Dispatchers.IO) { recDao.delete(rec) }
+
+    // ---- اهداف پس‌انداز (نسخهٔ ۱٫۸) ------------------------------------------
+    val goals: StateFlow<List<SavingsGoalEntity>> = goalDao.observeActive()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** جمع واریزی‌ها/برداشت‌ها برای همهٔ اهداف — کلید = goalId */
+    val savedByGoal: StateFlow<Map<Long, Long>> = contribDao.observeAll()
+        .map { list ->
+            list.groupBy { it.goalId }.mapValues { (_, items) -> items.sumOf { it.amount } }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    fun saveGoal(id: Long?, title: String, targetAmount: Long, icon: String, color: String) =
+        viewModelScope.launch(Dispatchers.IO) {
+            if (title.isBlank() || targetAmount <= 0) return@launch
+            if (id == null) {
+                goalDao.insert(
+                    SavingsGoalEntity(
+                        title = title.trim(),
+                        targetAmount = targetAmount,
+                        icon = icon,
+                        color = color,
+                        createdDate = System.currentTimeMillis()
+                    )
+                )
+            } else {
+                val existing = goalDao.observeAll().first().find { it.id == id } ?: return@launch
+                goalDao.update(
+                    existing.copy(
+                        title = title.trim(),
+                        targetAmount = targetAmount,
+                        icon = icon,
+                        color = color
+                    )
+                )
+            }
+        }
+
+    /** واریز (+) یا برداشت (−) — برداشت هرگز از موجودی فعلی عبور نمی‌کند. */
+    fun contribute(goal: SavingsGoalEntity, amount: Long, deposit: Boolean) =
+        viewModelScope.launch(Dispatchers.IO) {
+            if (amount <= 0) return@launch
+            val signed = if (deposit) amount else {
+                val saved = contribDao.savedForGoal(goal.id)
+                -minOf(amount, saved) // بدون منفی شدن
+            }
+            if (signed == 0L) return@launch
+            contribDao.insert(
+                GoalContributionEntity(
+                    goalId = goal.id,
+                    amount = signed,
+                    date = System.currentTimeMillis()
+                )
+            )
+        }
+
+    /** حذف هدف با همهٔ واریزی‌هایش — اتمی */
+    fun deleteGoal(goal: SavingsGoalEntity) = viewModelScope.launch(Dispatchers.IO) {
+        db.withTransaction {
+            contribDao.deleteForGoal(goal.id)
+            goalDao.delete(goal)
+        }
+    }
+
     // ---- lock (قفل PIN + اثر انگشت) -------------------------------------------
     // همهٔ منطق اعتبارنامه‌ها به security/SecurityManager منتقل شد (امنیت + DRY):
     // PBKDF2 با salt، مقایسهٔ زمان‌ثابت، مهاجرت شفاف هش‌های قدیمی
@@ -194,12 +328,21 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         val cats = catDao.observeAll().first()
         val rems = remDao.observeAll().first()
         val debts = debtDao.observeAll().first()
-        BackupJson.Backup(cats, txs, rems, debts)
+        val recs = recDao.observeAll().first()
+        val goalList = goalDao.observeAll().first()
+        val contribs = contribDao.observeAll().first()
+        BackupJson.Backup(cats, txs, rems, debts, recs, goalList, contribs)
     }
 
     suspend fun writeBackupFile(context: Context, backup: BackupJson.Backup): File =
         withContext(Dispatchers.IO) {
-            BackupJson.write(context, BackupJson.build(backup.transactions, backup.categories, backup.reminders, backup.debts))
+            BackupJson.write(
+                context,
+                BackupJson.build(
+                    backup.transactions, backup.categories, backup.reminders, backup.debts,
+                    backup.recurring, backup.goals, backup.contributions
+                )
+            )
         }
 
     /** بازیابی کامل داده‌ها از فایل پشتیبان. در موفقیت true برمی‌گرداند. */
@@ -210,6 +353,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         catDao.deleteAll()
         remDao.deleteAll()
         debtDao.deleteAll()
+        recDao.deleteAll()
+        contribDao.deleteAll()
+        goalDao.deleteAll()
         val idMap = mutableMapOf<Long, Long>()
         for (cat in backup.categories) {
             val newId = catDao.insert(cat.copy(id = 0))
@@ -223,6 +369,20 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
         for (debt in backup.debts) {
             if (debt.person.isNotBlank()) debtDao.insert(debt.copy(id = 0))
+        }
+        val goalIdMap = mutableMapOf<Long, Long>()
+        for (rec in backup.recurring) {
+            if (rec.title.isBlank()) continue
+            recDao.insert(rec.copy(id = 0, categoryId = idMap[rec.categoryId] ?: 0L))
+        }
+        for (goal in backup.goals) {
+            if (goal.title.isBlank()) continue
+            goalIdMap[goal.id] = goalDao.insert(goal.copy(id = 0))
+        }
+        for (c in backup.contributions) {
+            val mapped = goalIdMap[c.goalId] ?: continue
+            if (c.amount == 0L) continue
+            contribDao.insert(c.copy(id = 0, goalId = mapped))
         }
         true
     }
@@ -306,9 +466,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             catDao.update(category.copy(budgetAmount = budget.coerceAtLeast(0)))
         }
 
-    /** Returns false when the category still has transactions and cannot be removed. */
+    /** Returns false when the category still has transactions or recurring items. */
     suspend fun deleteCategory(cat: CategoryEntity): Boolean = withContext(Dispatchers.IO) {
-        if (txDao.countForCategory(cat.id) > 0) {
+        if (txDao.countForCategory(cat.id) > 0 || recDao.countForCategory(cat.id) > 0) {
             false
         } else {
             catDao.delete(cat)

@@ -33,8 +33,10 @@ import com.kifpool.app.WalletViewModel
 import com.kifpool.app.ui.screens.AddEditScreen
 import com.kifpool.app.ui.screens.CategoriesScreen
 import com.kifpool.app.ui.screens.DebtsScreen
+import com.kifpool.app.ui.screens.GoalsScreen
 import com.kifpool.app.ui.screens.HomeScreen
 import com.kifpool.app.ui.screens.LockScreen
+import com.kifpool.app.ui.screens.RecurringScreen
 import com.kifpool.app.ui.screens.RemindersScreen
 import com.kifpool.app.ui.screens.SettingsScreen
 import com.kifpool.app.ui.screens.StatsScreen
@@ -47,7 +49,9 @@ fun AppRoot(
     locked: Boolean = false,
     onUnlock: () -> Unit = {},
     openReminders: Boolean = false,
-    onRemindersOpened: () -> Unit = {}
+    onRemindersOpened: () -> Unit = {},
+    openRecurring: Boolean = false,
+    onRecurringOpened: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -62,7 +66,7 @@ fun AppRoot(
         return
     }
 
-    // کلیک روی اعلان یادآور => باز شدن مستقیم صفحه یادآورها
+    // کلیک روی اعلان یادآور / سررسید تکرارشو => باز شدن مستقیم صفحهٔ مربوطه
     LaunchedEffect(openReminders) {
         if (openReminders) {
             try {
@@ -71,6 +75,17 @@ fun AppRoot(
                 // ناوبری هرگز نباید برنامه را ببندد
             }
             onRemindersOpened()
+        }
+    }
+
+    LaunchedEffect(openRecurring) {
+        if (openRecurring) {
+            try {
+                navController.navigate("recurring") { launchSingleTop = true }
+            } catch (e: Exception) {
+                // ناوبری هرگز نباید برنامه را ببندد
+            }
+            onRecurringOpened()
         }
     }
 
@@ -135,7 +150,12 @@ fun AppRoot(
             modifier = Modifier.padding(padding)
         ) {
             composable("home") {
-                HomeScreen(vm, onEdit = { id -> navController.navigate("edit/$id") })
+                HomeScreen(
+                    vm,
+                    onEdit = { id -> navController.navigate("edit/$id") },
+                    onOpenRecurring = { navController.navigate("recurring") { launchSingleTop = true } },
+                    onOpenGoals = { navController.navigate("goals") { launchSingleTop = true } }
+                )
             }
             composable("stats") { StatsScreen(vm) }
             composable("debts") { DebtsScreen(vm) }
@@ -143,11 +163,19 @@ fun AppRoot(
             composable("settings") {
                 SettingsScreen(
                     vm,
-                    onOpenReminders = { navController.navigate("reminders") { launchSingleTop = true } }
+                    onOpenReminders = { navController.navigate("reminders") { launchSingleTop = true } },
+                    onOpenRecurring = { navController.navigate("recurring") { launchSingleTop = true } },
+                    onOpenGoals = { navController.navigate("goals") { launchSingleTop = true } }
                 )
             }
             composable("reminders") {
                 RemindersScreen(vm, onBack = { navController.popBackStack() })
+            }
+            composable("recurring") {
+                RecurringScreen(vm, onBack = { navController.popBackStack() })
+            }
+            composable("goals") {
+                GoalsScreen(vm, onBack = { navController.popBackStack() })
             }
             composable("add") {
                 AddEditScreen(vm, txId = null, onBack = { navController.popBackStack() })

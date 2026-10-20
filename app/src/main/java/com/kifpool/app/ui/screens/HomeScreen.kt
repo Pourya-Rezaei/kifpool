@@ -1,5 +1,6 @@
 package com.kifpool.app.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,8 +16,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
+import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.ReceiptLong
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.Savings
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -27,8 +31,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.kifpool.app.WalletViewModel
+import com.kifpool.app.data.GoalProgress
+import com.kifpool.app.logic.RecurringEngine
 import com.kifpool.app.ui.components.EmptyState
 import com.kifpool.app.ui.components.MiniStat
 import com.kifpool.app.ui.components.MonthSwitcher
@@ -37,12 +44,22 @@ import com.kifpool.app.ui.components.SectionTitle
 import com.kifpool.app.ui.components.TxRow
 import com.kifpool.app.ui.theme.LocalAppColors
 import com.kifpool.app.util.Fmt
+import com.kifpool.app.util.Presets
+import java.time.LocalDate
 
 @Composable
-fun HomeScreen(vm: WalletViewModel, onEdit: (Long) -> Unit) {
+fun HomeScreen(
+    vm: WalletViewModel,
+    onEdit: (Long) -> Unit,
+    onOpenRecurring: () -> Unit = {},
+    onOpenGoals: () -> Unit = {}
+) {
     val data by vm.data.collectAsState()
     val month by vm.selectedMonth.collectAsState()
     val appColors = LocalAppColors.current
+    val recurring by vm.recurring.collectAsState()
+    val goals by vm.goals.collectAsState()
+    val savedByGoal by vm.savedByGoal.collectAsState()
 
     Column(
         Modifier
@@ -179,6 +196,135 @@ fun HomeScreen(vm: WalletViewModel, onEdit: (Long) -> Unit) {
                 value = Fmt.money(d.dailyAverage),
                 modifier = Modifier.weight(1f)
             )
+        }
+
+        // ---------- دستیار مالی: سررسیدهای نزدیک + اهداف پس‌انداز ----------
+        val enabledRecs = recurring.filter { it.enabled }
+        val upcoming = enabledRecs
+            .mapNotNull { rec -> RecurringEngine.upcomingDate(rec, LocalDate.now())?.let { rec to it } }
+            .sortedBy { it.second }
+            .take(2)
+        if (upcoming.isNotEmpty() || goals.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Rounded.Repeat,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "دستیار مالی",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+
+                    upcoming.forEach { (rec, date) ->
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable { onOpenRecurring() }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.Repeat,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                rec.title,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                            Text(
+                                Fmt.money(rec.amount) + " تومان — " + Fmt.dateShort(date),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.tertiary
+                            )
+                        }
+                    }
+
+                    goals.take(2).forEach { goal ->
+                        val progress = GoalProgress(
+                            saved = savedByGoal[goal.id] ?: 0L,
+                            target = goal.targetAmount
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable { onOpenGoals() }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Icon(
+                                Presets.iconOf(goal.icon),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                goal.title,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                            Text(
+                                Fmt.percent(progress.fraction),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        ProgressBar(
+                            fraction = progress.fraction,
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                        )
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.small)
+                            .clickable { if (goals.isNotEmpty()) onOpenGoals() else onOpenRecurring() }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Text(
+                            if (goals.isEmpty()) "مدیریت تکرارشوها"
+                            else "اهداف و تکرارشوها",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            Icons.Rounded.ChevronLeft,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
         }
 
         // ---------- category budget alerts ----------
